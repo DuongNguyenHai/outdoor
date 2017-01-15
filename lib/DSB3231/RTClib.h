@@ -13,14 +13,13 @@ class TimeSpan;
 #define DS3231_ADDRESS  0x68
 #define DS3231_CONTROL  0x0E
 #define DS3231_STATUSREG 0x0F
-#define DS3231_ALARM_1_ADDR 0x07
-#define DS3231_ALARM_2_ADDR 0x0B
-
+const uint8_t alarm_addr[2] = {0x07,0x0B};
 #define DS3231_ALARM_1 1
 #define DS3231_ALARM_2 2
 
 #define SECONDS_PER_DAY 86400L
 #define SECONDS_FROM_1970_TO_2000 946684800
+#define RCT_WRONG 947979985            // it will be used to indicate that reading from RTC has a problem
 
 #if defined(ESP8266)
 #define ESP8266_SDA 2         // esp8266 ver7
@@ -31,7 +30,13 @@ class TimeSpan;
 #define ALARM_1 DS3231_ALARM_1
 #define ALARM_2 DS3231_ALARM_2
 #define RTC RTC_DS3231
+
 //  end define
+
+// alarm just support max matched dayofmonth/hours/minutes/second
+typedef struct Alarm {
+   uint8_t d, hh, mm, ss;
+} alarm_t;
 
 // Simple general-purpose date/time class (no TZ / DST / leap second handling!)
 class DateTime {
@@ -88,33 +93,35 @@ enum Ds3231SqwPinMode { DS3231_OFF = 0x01, DS3231_SquareWave1Hz = 0x00, DS3231_S
 class RTC_DS3231 {
 
 public:
-   boolean begin(void);                      // setup I2C
+   bool begin(const unsigned char sda_pin, const unsigned char scl_pin);                      // setup I2C
    static void adjust(const DateTime& dt);   // set time to RTC
-   bool lostPower(void);                     // check time of RTC was setted or alarmt.
+   bool lostPower(void);                     // check time of RTC was set or alarmt.
    static DateTime now();                    // get time from RTC
+   bool getTimeString(char *s);      // get time and convert it to string. Time format ISO 8601 : yyyy:mm:ddThh:mm:ss
    static Ds3231SqwPinMode readSqwPinMode(); // read square wave in SQW pin
    static void writeSqwPinMode(Ds3231SqwPinMode mode);   // write mode to SQW pin (there are 5 modes)
    bool setAlarm(uint8_t alarm);         // turn on alarm, there are 2 alarms. uint8_t alarm = 1 or 2 (alarm 1 or 2)
    // Table : alarm and mode, ss (second), mm (minute), hh (hour), date (day of month)
-   //             Alarm 1           Alarm 2             mode
+   //             Alarm 1            Alarm 2             mode
    //          repeat second     repeat a minute         0
    // match :     ss                                     1
    // match :    mm,ss                 mm                2
    // match :   hh,nn,ss             hh,mm               3
    // match : date,hh,mm,ss         date,hh,mm           4
-   int setAlarm(uint8_t alarm, const DateTime& dt, uint8_t mode=3);  // it has not cheked setting alarm yet
+   bool setAlarm(uint8_t alarm, alarm_t tm, uint8_t mode=3);  // it has not cheked setting alarm yet
    bool setAlarmHour(uint8_t alarm, uint8_t hour);  // set alarm on if time equal hour of day (24 hour). ex setAlarmHour(DS3231_ALARM_2, 20). Alarm 2 will on at 20:00:00 (hh:mm:ss)
    bool switchAlarm(bool state);       // turn off all alarm by set INTCN
-   bool isAlarmEnable();                   // check alarm is on or off by check INTCN = 0 or 1
+   bool isAlarmEnable();                  // check alarm is on or off by check INTCN = 0 or 1
    bool isAlarmSet(uint8_t alarm);        // check alarm was set or not.  uint8_t alarm = 1 or 2
    bool clearFlag(uint8_t alarm=0);       // clear flag of alarm. default = 0 means clear all flags.
    bool isFlagSet(uint8_t alarm);         // check flag is set or not
-   uint8_t readRegControl();           // read control register
-   uint8_t readRegStatus();            // read status register
-   uint8_t readRegister(uint8_t reg);  // read reg register
+   alarm_t readAlarmTime(uint8_t alarm);  // read time has set for alarm
+   uint8_t readRegControl();              // read control register
+   uint8_t readRegStatus();               // read status register
+   uint8_t readRegister(uint8_t reg);     // read reg register
 
 private:
-   int setAlarmReg(uint8_t addr, int mm = -1, int hh = -1, int date = -1, int ss = -1);   // write byte to register alarm
+
 };
 
 // RTC using the internal millis() clock, has to be initialized before use

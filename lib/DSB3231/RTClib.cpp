@@ -1,6 +1,3 @@
-// Code by JeeLabs http://news.jeelabs.org/code/
-// Released to the public domain! Enjoy!
-
 #include "RTClib.h"
 #ifdef __AVR__
  #include <avr/pgmspace.h>
@@ -26,7 +23,6 @@
  #define _I2C_WRITE send
  #define _I2C_READ  receive
 #endif
-
 
 static uint8_t read_i2c_register(uint8_t addr, uint8_t reg) {
   Wire.beginTransmission(addr);
@@ -247,9 +243,9 @@ DateTime RTC_Millis::now() {
 ////////////////////////////////////////////////////////////////////////////////
 // RTC_DS3231 implementation
 
-boolean RTC_DS3231::begin(void) {
+bool RTC_DS3231::begin(const unsigned char sda_pin, const unsigned char scl_pin) {
    #if defined(ESP8266)
-   Wire.begin(ESP8266_SDA, ESP8266_SCL);
+   Wire.begin(sda_pin, scl_pin);
    #else
    Wire.begin();
    #endif
@@ -294,6 +290,14 @@ DateTime RTC_DS3231::now() {
   return DateTime (y, m, d, hh, mm, ss);
 }
 
+bool RTC_DS3231::getTimeString(char *s) {
+   DateTime tm = now();
+   if(tm.unixtime()==RCT_WRONG)
+      return false;
+   snprintf (s, 22, "[%d/%d/%dT%d:%d:%d]", tm.year(), tm.month(), tm.day(), tm.hour(), tm.minute(), tm.second());
+   return true;
+}
+
 Ds3231SqwPinMode RTC_DS3231::readSqwPinMode() {
   int mode;
 
@@ -327,6 +331,7 @@ uint8_t RTC_DS3231::readRegControl() {
 }
 
 bool RTC_DS3231::setAlarm(uint8_t alarm) {
+   clearFlag(alarm);
    uint8_t ctrl = read_i2c_register(DS3231_ADDRESS, DS3231_CONTROL);
    ctrl |= 0x04;  // turn on INTCN
    ctrl |= alarm;  // set bit alarm
@@ -352,89 +357,78 @@ bool RTC_DS3231::setAlarmHour(uint8_t alarm, uint8_t hh) {
 
    setAlarm(alarm);
    Wire.beginTransmission(DS3231_ADDRESS);
-   if(alarm==DS3231_ALARM_1) {
-      Wire._I2C_WRITE((byte)DS3231_ALARM_1_ADDR);     // start at location of alarm 1 register
+   Wire._I2C_WRITE((byte)alarm_addr[alarm-1]);
+   if(alarm==DS3231_ALARM_1)
       Wire._I2C_WRITE(0);                             // second = 0 and A*M1 = 0
-   }
-   else {
-      Wire._I2C_WRITE((byte)DS3231_ALARM_2_ADDR);     // start at location of alarm 2 register
-   }
    Wire._I2C_WRITE(0);                                // minute = 0 and A*M2 = 0
-   Wire._I2C_WRITE(bin2bcd(hh) | 0x80);               // hour = hh and A*M3 = 0
+   Wire._I2C_WRITE(bin2bcd(hh) & ~0x80);              // hour = hh and A*M3 = 0
    Wire._I2C_WRITE(0x80);                             // A*M4 = 1;
    Wire.endTransmission();
 
-   // check set alarm has successed or not
-   Wire.beginTransmission(DS3231_ADDRESS);
-   if(alarm==DS3231_ALARM_1)
-      Wire._I2C_WRITE((byte)DS3231_ALARM_1_ADDR);
-   else
-      Wire._I2C_WRITE((byte)DS3231_ALARM_2_ADDR);
-   Wire.endTransmission();
-
-   if(alarm==DS3231_ALARM_1) {
-      Wire.requestFrom(DS3231_ADDRESS, 4);
-      if( Wire._I2C_READ()!=0 )
-         return false;
-
-   }
-   else
-      Wire.requestFrom(DS3231_ADDRESS, 3);
-
-   if( Wire._I2C_READ()!=0 || Wire._I2C_READ() != (bin2bcd(hh) | 0x80) || Wire._I2C_READ() != 0x80 )
-      return false;
-
    return true;
+   // This code below to check Time was set right or not
+   // return (hh==readAlarmTime(alarm).hh) ? true:false;
 }
 
-int RTC_DS3231::setAlarm(uint8_t alarm, const DateTime& dt, uint8_t mode) {
+bool RTC_DS3231::setAlarm(uint8_t alarm, alarm_t tm, uint8_t mode) {
 
-   int mm = -1, hh = -1, date = -1, ss = -1;
    setAlarm(alarm);
 
-   if(mode>0)
-      ss = dt.second();
-   if(mode>1)
-      mm = dt.minute();
-   if(mode>2)
-      hh = dt.hour();
-   if(mode>3)
-      date = dt.day();
-
-   // Serial.printf("(mm:hh:date:ss) %d:%d:%d:%d\n", mm, hh, date, ss);
-   if(alarm==DS3231_ALARM_1)
-      setAlarmReg(DS3231_ALARM_1_ADDR, mm, hh, date, ss);
-   else
-      setAlarmReg(DS3231_ALARM_2_ADDR, mm, hh, date, ss);
-
-   return 0;
-}
-
-int RTC_DS3231::setAlarmReg(uint8_t addr, int mm, int hh, int date, int ss) {
-
    Wire.beginTransmission(DS3231_ADDRESS);
-   Wire._I2C_WRITE((byte)addr);                      // start at location addr
+   Wire._I2C_WRITE((byte)alarm_addr[alarm-1]);
 
-   if(addr==DS3231_ALARM_1_ADDR)
-      if(ss!=-1)
-         Wire._I2C_WRITE(bin2bcd(ss) & ~0x80 );    // bit A*M2 = 0
+   if(alarm==DS3231_ALARM_1)
+      if(mode>0)
+         Wire._I2C_WRITE(bin2bcd(tm.ss) & ~0x80 );    // bit A*M1 = 0
       else
-         Wire._I2C_WRITE(0x80);                    // bit A*M2 = 1
-   if(mm!=-1)
-      Wire._I2C_WRITE(bin2bcd(mm) & ~0x80 );       // bit A*M2 = 0
+         Wire._I2C_WRITE(0x80);                    // bit A*M1 = 1
+
+   if(mode>1)
+      Wire._I2C_WRITE(bin2bcd(tm.mm) & ~0x80 );       // bit A*M2 = 0
+   else
+      Wire._I2C_WRITE(0x80);                       // bit A*M2 = 0
+   if(mode>2)
+      Wire._I2C_WRITE(bin2bcd(tm.hh) & ~0x80 );       // bit A*M3 = 0
    else
       Wire._I2C_WRITE(0x80);                       // bit A*M3 = 1
-   if(hh!=-1)
-      Wire._I2C_WRITE(bin2bcd(hh) & ~0x80 );       // bit A*M3 = 0
-   else
-      Wire._I2C_WRITE(0x80);                       // bit A*M3 = 1
-   if(date!=-1)
-      Wire._I2C_WRITE(bin2bcd(date) & ~0xC0 );     // bit A*M4 = 0, bit DY/DT = 0
+   if(mode>3)
+      Wire._I2C_WRITE(bin2bcd(tm.d) & ~0xC0 );     // bit A*M4 = 0, bit DY/DT = 0
    else
       Wire._I2C_WRITE(0x80);                       // bit A*M4 = 1
 
    Wire.endTransmission();
-   return 0;
+
+   return true;
+   // This code below to check Time was set right or not
+   // alarm_t tmr = readAlarmTime(alarm);
+   // return (tmr.d==tm.d && tmr.hh==tm.hh && tmr.mm==tm.mm && tmr.ss==tm.ss) ? true : false;
+}
+
+alarm_t RTC_DS3231::readAlarmTime(uint8_t alarm) {
+
+   alarm_t tm = {0};
+
+   Wire.beginTransmission(DS3231_ADDRESS);
+   Wire._I2C_WRITE((byte)alarm_addr[alarm-1]);
+   Wire.endTransmission();
+
+   if(alarm==DS3231_ALARM_1) {
+      Wire.requestFrom(DS3231_ADDRESS, 4);
+      tm.ss = bcd2bin(Wire._I2C_READ());
+   }
+   else
+      Wire.requestFrom(DS3231_ADDRESS, 3);
+
+   tm.mm  = bcd2bin(Wire._I2C_READ());
+   tm.hh = bcd2bin(Wire._I2C_READ());
+   tm.d = bcd2bin(Wire._I2C_READ());
+
+   if(tm.ss>=80) tm.ss=0;
+   if(tm.mm>=80) tm.mm=0;
+   if(tm.hh>=80) tm.hh=0;
+   if(tm.d>=80) tm.d=0;
+
+   return tm;
 }
 
 uint8_t RTC_DS3231::readRegStatus() {
@@ -459,7 +453,6 @@ bool RTC_DS3231::clearFlag(uint8_t alarm) {
       regStatus &= ~0x03;
    else
       regStatus &= ~alarm;
-
    write_i2c_register(DS3231_ADDRESS, DS3231_STATUSREG, regStatus);
    return true;
 }

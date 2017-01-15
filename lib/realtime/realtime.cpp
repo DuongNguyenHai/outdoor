@@ -1,20 +1,16 @@
 #include "realtime.h"
 
 #define DEFAULT_TIME 1483228800           // 00:00:00 jan 1 2017
-#define RCT_WRONG 947979985            // it will be used to indicate that reading from RTC has a problem
 
 SystemTime::SystemTime() {
-   if (!begin()) {
-     Log.error("Couldn't find RTC");
-   }
-   pinMode(ALARM_INTER, INPUT);
+   pinMode(PIN_ALARM, INPUT);
    track_measure = 0;
    track_lamp = 0;
 }
 
 SystemTime::~SystemTime() {}
 
-int SystemTime::setRTC(time_t t) {
+int SystemTime::set(time_t t) {
    adjust(DateTime(t));
    time_t t2 = getTime();
    if(t2<=t+TIME_DIFF)
@@ -24,44 +20,56 @@ int SystemTime::setRTC(time_t t) {
 }
 
 int SystemTime::setDefault() {
-   return setRTC(DEFAULT_TIME);
+   return set(DEFAULT_TIME);
 }
 
 int SystemTime::setOnline() {
 
    time_t timeOnl = getTimeOnline();
    time_t timeSys = getTime();
-   if(timeOnl==0 && timeSys==0) {         // cant got time from internet and system time has not setted before
-      Log.error("Set default time and date\n");
+
+   if(timeSys==RCT_WRONG)  {               // error reading time from RTC
+      Log.errors("read RTC !");
+      return RT_FAIL;
+   }
+   if(timeOnl==0 && timeSys==0) {         // cant got time from internet and system time has not set before
+      Log.logs("RTC time and date will be set to default.");
       return setDefault();
    }
    else if(timeOnl==0 && timeSys!=0) return 0; // cant got time from internet
    else if ( timeSys==0 || timeOnl<=timeSys-TIME_DIFF || timeOnl>=timeSys+TIME_DIFF) {
-      Log.log("Time and date will be updated online\n");
+      Log.logs("RTC time and date will be updated online.");
       // Setting time and date
-      return setRTC(timeOnl);
+      return set(timeOnl);
    }
+   Log.logs("RTC time and date dont need to be adjusted.");
+   return RT_MISS;
+}
 
-   return RT_SUSS;
+time_t SystemTime::get() {
+   return now().unixtime();
 }
 
 time_t SystemTime::getTime() {
    if(lostPower())
       return 0;
-   time_t t = now().unixtime();
-   if (t==RCT_WRONG) {      // RTC device read error
-      Log.error("RTC device read error !\n");
-      return 0;
-   }
-   return t;
+   time_t tnow = get();
+   if(tnow==RCT_WRONG)
+      Log.errors("RTC device read error !");
+
+   return tnow;
+}
+
+unsigned char SystemTime::getTimeHour() {
+   return DateTime(getTime()).hour();
 }
 
 void SystemTime::print() {
-   DateTime tnow = now();
-   if (tnow.unixtime()!=RCT_WRONG)
-      printDateTime(tnow);
+   time_t tnow = get();
+   if (tnow!=RCT_WRONG)
+      printDateTime(DateTime(tnow));
    else
-      Log.error("RTC device read error !\n");
+      Log.errors("RTC device read error !");
 }
 
 time_t SystemTime::getTimeOnline() {
@@ -69,11 +77,10 @@ time_t SystemTime::getTimeOnline() {
    WiFiClient client;
    // trying to connect google.con in 13 times
    for (size_t i = 0; i < 13; i++) {
-      if (!client.connect("google.com", 80)) {
-         Log.log("connection to google.com failed, retrying...\n");
-      } else break;
+      if (client.connect("google.com", 80))
+         break;
       if(i==13-1) {
-         Log.error("Cant got time from google\n");
+         Log.errors("Got time from google failed");
          return 0;
       }
    }
@@ -93,7 +100,7 @@ time_t SystemTime::getTimeOnline() {
                           client.read();
                           String dateTime = client.readStringUntil('\r');
                           client.stop();
-                          // Log.log(dateTime);
+                          // Log.logs(dateTime);
                           return convertToDateTime(dateTime);
                         }
                      }
@@ -141,23 +148,30 @@ time_t SystemTime::convertToDateTime(String str) {
 
 }
 
+int SystemTime::getTimeString(char *s) {
+   if(RTC::getTimeString(s))
+      return RT_SUSS;
+   else
+      return RT_FAIL;
+}
+
 void SystemTime::printDateTime(tmElements_t tm) {
-   Log.printf("Time = %d:%d:%d, Date (D/M/Y) = %d/%d/%d \n", tm.Hour, tm.Minute, tm.Second, tm.Day, tm.Month, tmYearToCalendar(tm.Year));
+   Log.printfs("Time = %d:%d:%d, Date (D/M/Y) = %d/%d/%d", tm.Hour, tm.Minute, tm.Second, tm.Day, tm.Month, tmYearToCalendar(tm.Year));
 }
 
 void SystemTime::printDateTime(DateTime tm) {
-   Log.printf("Time = %d:%d:%d, Date (D/M/Y) = %d/%d/%d \n", tm.hour(), tm.minute(), tm.second(), tm.day(), tm.month(), tm.year());
+   Log.printfs("Time = %d:%d:%d, Date (D/M/Y) = %d/%d/%d", tm.hour(), tm.minute(), tm.second(), tm.day(), tm.month(), tm.year());
 }
 
 bool SystemTime::isAlarmOn() {
-   if(! digitalRead(ALARM_INTER))
+   if(! digitalRead(PIN_ALARM))
       return true;
    else
       return false;
 }
 
-bool SystemTime::WhatsAlarmOn(unsigned char alarm) {
-   if(! digitalRead(ALARM_INTER)) {
+bool SystemTime::WhichsAlarmOn(unsigned char alarm) {
+   if(! digitalRead(PIN_ALARM)) {
       if(isFlagSet(alarm)) {
          clearFlag(alarm);
          return true;
@@ -167,25 +181,54 @@ bool SystemTime::WhatsAlarmOn(unsigned char alarm) {
    return false;
 }
 
-int SystemTime::setNextSchedule(unsigned char alarm) {
+bool SystemTime::initAlarm(unsigned char alarm) {
 
-   int ret;
+   // set first time for alarm 1
+   if(alarm==ALARM_1) {
+      for (unsigned char i = 0; i < SCHEDULE_MEASURE_MAX; i++) {
+         if(schedule_measure[i]!=0) {
+            if(schedule_measure[i]>getTimeHour()) {
+               track_measure = i;
+               break;
+            }
+         }
+      }
+      Log.verboses("Set time for alarm %d: %uh", alarm, schedule_measure[track_measure]);
+      return setAlarmHour(alarm, schedule_measure[track_measure]);
+
+   }
+   // set first time for alarm 2
+   else {
+      for (unsigned char i = 0; i < SCHEDULE_LAMP_MAX; i++) {
+         if(schedule_lamp[i]!=0) {
+            if(schedule_lamp[i]>getTimeHour()) {
+               track_lamp = i;
+               break;
+            }
+         }
+      }
+      Log.verboses("Set time for alarm %d: %uh", alarm, schedule_lamp[track_lamp]);
+      return setAlarmHour(alarm, schedule_lamp[track_lamp]);
+   }
+
+}
+
+bool SystemTime::setNextSchedule(unsigned char alarm) {
+
    // set next time for alarm 1
    if(alarm==ALARM_1) {
-      ret = setAlarmHour(alarm, schedule_measure[track_measure]);
       track_measure = (track_measure + 1) % SCHEDULE_MEASURE_MAX;
+      Log.verboses("Set time for alarm %d: %uh", alarm, schedule_measure[track_measure]);
+      return setAlarmHour(alarm, schedule_measure[track_measure]);
    }
    // set next time for alarm 2
    else {
-      ret = setAlarmHour(alarm, schedule_lamp[track_lamp]);
       track_lamp = (track_lamp + 1) % SCHEDULE_LAMP_MAX;
+      Log.verboses("Set time for alarm %d: %uh", alarm, schedule_lamp[track_lamp]);
+      return setAlarmHour(alarm, schedule_lamp[track_lamp]);
    }
 
-   if(ret)
-      return RT_SUSS;
-   else
-      return RT_FAIL;
 }
 
-// create a global Time
+// Create a global Time
 SystemTime Time;
