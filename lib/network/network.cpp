@@ -1,8 +1,8 @@
 #include "network.h"
 
-IPAddress ip_static(192,168,0,13);
-IPAddress ip_gateway(192,168,0,1);
-IPAddress ip_subnet(255,255,255,0);
+// IPAddress ip_static(192,168,0,13);
+// IPAddress ip_gateway(192,168,0,1);
+// IPAddress ip_subnet(255,255,255,0);
 
 NetworkBase::NetworkBase() {}
 NetworkBase::~NetworkBase() {}
@@ -10,29 +10,30 @@ NetworkBase::~NetworkBase() {}
 int NetworkBase::begin(const char *ssid_, const char *pass_, unsigned char times_out) {
 
    // Serial.printf("Connecting to %s ", ssid);
-   pinMode(LED, OUTPUT);
-   digitalWrite(LED, HIGH); // set the light off
+   // pinMode(LED, OUTPUT);
+   // digitalWrite(LED, HIGH); // set the light off
 
-   gotIpEventHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& event) {
-      Serial.println("Wifi connected !");
-      digitalWrite(LED, LOW); // set the light on
-   });
-
-   disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event) {
-      digitalWrite(LED, HIGH); // set the light off
-      Serial.println("WiFi disconnected !");
-   });
+   // gotIpEventHandler = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP& event) {
+   //    Serial.println("Wifi connected !");
+   //    digitalWrite(LED, LOW); // set the light on
+   // });
+   //
+   // disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event) {
+   //    digitalWrite(LED, HIGH); // set the light off
+   //    Serial.println("WiFi disconnected !");
+   // });
 
    WiFi.begin(ssid_, pass_);
 
    //  trying to connect to wifi (time = times_out*5000 ms)
    for (size_t i = 0; i < times_out; i++) {
       if (WiFi.status() != WL_CONNECTED) {
+         Serial.printf("Trying to connect internet, %d\n", i);
          delay(5000);
       } else {
          break;
       }
-      if(i==120-1) {
+      if(i==times_out-1) {
          // Serial.printf("Cant connect to internet.\n");
          return RT_FAIL;
       }

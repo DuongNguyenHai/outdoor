@@ -1,0 +1,1 @@
+{"lamp":{"state":true,"on":10,"off":20},"measure_tempt_fishtank":{"schedule":"2,5,8,11,14,17,20,23"},"system_time":"2017-03-11T16:16"}

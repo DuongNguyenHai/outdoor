@@ -1,40 +1,94 @@
 #include "system.h"
 
-SystemControl::SystemControl() {}
-SystemControl::~SystemControl() {}
-
 NetworkBase WirelessLocal;
 NetworkUDP Network;
+
+SystemControl::SystemControl() {}
+SystemControl::~SystemControl() {}
 
 bool SystemControl::startUp() {
 
    Serial.begin(BAUD_RATE);                  // begin serial
    Wire.begin(ESP8266_SDA, ESP8266_SCL);     // begin I2C
-   // Time.begin();     // begin I2C
-   // eeprom.begin();    // begin I2C
 
-   int rt_net = setUpNetwork();
-   bool online = (rt_net != RT_FAIL) ? true : false;
-   setUpSystemTime(online);
-   readInfor();
-   return true;
+   // Step 2: setup display monitor
+   System.setupDisplay();
+   DisplayLCD.print("System start",0,0);
+
+   // Step 3: read config from system.txt file
+   System.showHostFile();     // show all files in system
+   System.config();
+
+   // Step 4: setup network. Trying to connect to wifi. If has internet connection will get time from google
+   // and if not, it will set system time offline
+   int ret = System.setupNetwork();
+   bool online = (ret != RT_FAIL) ? ONLINE : OFFLINE;
+
+   System.setupSystemTime(online);
+
+   // System.setupSystemTime(ONLINE);
+   // Time.set(DateTime(2017, 03, 10, 22, 24, 40).unixtime()); // setup time
+
+   // Step 5: setup lamps.
+   System.setupLamps();
+
+   // Step 6: setup server: access the web page at http://esp8266fs.local
+   System.setupHost();
+
+   // Show information to display monitor
+   char tm[22];
+   Time.getDateTimeString(tm);
+   Log.logs("System has took %lu ms for start up, %s", millis(), tm);
+
+   System.displayInfor2LCD();
 }
 
-int SystemControl::setUpNetwork() {
+int SystemControl::config() {
+   SPIFFS.begin();
+   File fileSys = SPIFFS.open(SYSTEM_FILE, "r+");
+   if (!fileSys) {
+      Log.errors("network file open failed");
+      return RT_FAIL;
+   }
+   String json = fileSys.readStringUntil('\n');
+   StaticJsonBuffer<200>jsonBuffer;
+   JsonObject& root = jsonBuffer.parseObject((char *)json.c_str());
+   String schedule = root["measure_tempt_fishtank"]["temptSchedule"];
+   convertStringToArry(schedule, schedule_measure, ',', SCHEDULE_MEASURE_MAX);
 
-   char ssid[30];
-   char pass[30];
-   char host[15];
-   int port;
+   int lightOnFrom = root["lamp"]["lightOnFrom"];
+   int lightOnTo = root["lamp"]["lightOnTo"];
 
-   Memory.readInforWifi(ssid,pass);
-   Memory.readInforServer(host, port);
+   schedule_lamp[0] = lightOnFrom;
+   schedule_lamp[1] = lightOnTo;
 
-   Log.verboses("ssid: %s, pass: %s", ssid, pass);
-   Log.verboses("host: %s, port: %d", host, port);
+   Serial.printf("lightOnFrom: %d, lightOnTo: %d", schedule_lamp[0], schedule_lamp[1]);
+}
 
-   int rt_wf = WirelessLocal.begin(ssid, pass, 10);
-   int rt_net = Network.begin(host);
+int SystemControl::setupNetwork() {
+
+   File fileSys = SPIFFS.open(NETWORK_FILE, "r+");
+   if (!fileSys) {
+      Log.errors("network file open failed");
+      return RT_FAIL;
+   }
+   String json = fileSys.readStringUntil('\n');
+   fileSys.close();
+   StaticJsonBuffer<100> jsonBuffer;
+   JsonObject& root = jsonBuffer.parseObject((char *)json.c_str());
+   String ssid = root["network"]["ssid"];
+   String pass = root["network"]["pass"];
+   String host = root["host"];
+
+   // Log.verboses("ssid: %s, pass: %s, host: %s", ssid.c_str(), pass.c_str(), host.c_str());
+
+   int rt_wf = WirelessLocal.begin(ssid.c_str(), pass.c_str(), 3);
+   int rt_net = Network.begin(host.c_str());
+
+   if(rt_wf==RT_SUSS)
+      Log.logs("Internet connected !");
+   else
+      Log.warnings("Cant connect to internet !");
 
    if(rt_wf==RT_SUSS && rt_net==RT_SUSS)           // connecting to wifi and host success
       return RT_SUSS;
@@ -44,30 +98,37 @@ int SystemControl::setUpNetwork() {
       return RT_FAIL;
 }
 
-int SystemControl::setUpSystemTime(bool online) {
+bool SystemControl::setupSystemTime(bool online) {
 
    if(online) {
       Time.setOnline();  // getting tim from internet and set system time
    } else {
-      Log.warnings("Time will be set to default.");
-      Time.setDefault();   // system time will be set to default value 0:0:0 jan 1 2017
+      Log.warnings("Time will be set offline.");
+      Time.setOffline();   // if RTC lost time, system time will be set to default value 0:0:0 jan 1 2017
    }
 
-   Time.set(DateTime(2017,9,1,9,59,50).unixtime()); // 13:59:50 2017/1/8
-   Time.initAlarm(ALARM_1);
-   Time.initAlarm(ALARM_2);
+   Time.initAlarm(ALARM_LAMP);            // setting track_lamp for alarm 1, and set alarm time.
+   Time.initAlarm(ALARM_MEASURE);         //  setting track_measure for alarm 2
+   Time.setAlarmRepeat(ALARM_MEASURE);    // repeating alarm 2 in minute
+
+   return true;
+}
+
+bool SystemControl::setupDisplay() {
+   DisplayLCD.begin();
+   return true;
 }
 
 int SystemControl::serverConfig() {
    return RT_SUSS;
 }
 
-int SystemControl::readInfor() {
+int SystemControl::displayInfor() {
    int tempt = (int)(TemptTank.read()+0.5);        // round float -> int
    if(tempt!=NOT_REAL) {
       Log.verboses("Tempt tank %d (C)", tempt);
       // Network.send("Tempt tank %d (C)", tempt);
-      Display.number(tempt);
+      // DisplayLCD.number(tempt);
    }
    else {
       Log.errors("Reading sensor failed !");
@@ -76,28 +137,63 @@ int SystemControl::readInfor() {
 
 int SystemControl::handleAlarm() {
    if(Time.isAlarmOn()) {
-      if(Time.WhichsAlarmOn(ALARM_1)) {
-         int tempt = (int)(TemptTank.read()+0.5);        // round float -> int
-         if(tempt!=NOT_REAL) {
-            char tm[22];
-            Time.getTimeString(tm);
-            Log.logs("Alarm 1 is on %s: %d (C)", tm, tempt);
-            // Network.send("Alarm 1 is on %s: %d (C)", tm, tempt);
-            Display.number(tempt);
-            Time.setNextSchedule(ALARM_1);
+      if(Time.whichAlarmOn(ALARM_LAMP)) {
+         char tm[22];
+         Time.getTimeString(tm);
+         Log.logs("Alarm lamp is on %ss ", tm);
+         // Network.send("Alarm 1 is on %s: %d (C)", tm, tempt);
+         Time.setNextSchedule(ALARM_LAMP);
+         switchLamps();
+         DisplayLCD.displayLamptStatus(lamp_state);
+      } else if(Time.whichAlarmOn(ALARM_MEASURE)) {
+         DisplayLCD.displayTime();
+         // check schedule measure.
+         if(Time.getTimeHour() == schedule_measure[Time.trackCurrent(TRACK_MEASURE)]) {
+            Time.setNextSchedule(ALARM_MEASURE);
+            int tempt = (int)(TemptTank.read()+0.5);        // round float -> int
+            if(tempt!=NOT_REAL) {
+               DisplayLCD.displayTempt(tempt);
+            }
+            else {
+               Log.errors("Reading sensor failed !");
+            }
+            File fileSys = SPIFFS.open(TEMPT_FILE, "a+");
+            fileSys.print(",");
+            fileSys.print(tempt);
+            fileSys.close();
          }
-         else {
-            Log.errors("Reading sensor failed !");
-         }
-      } else if(Time.WhichsAlarmOn(ALARM_2)) {
-            char tm[22];
-            Time.getTimeString(tm);
-            Log.logs("Alarm 2 is on %s", tm);
-            // Network.send("Alarm 2 is on %s", tm);
-            Time.setNextSchedule(ALARM_2);
       }
    }
    return RT_SUSS;
+}
+
+void SystemControl::displayInfor2LCD() {
+   // DisplayLCD.print("system start", 0, 0);
+   DisplayLCD.displayLamptStatus(lamp_state);
+   DisplayLCD.print("Time", 6, 1);
+   DisplayLCD.displayTime();
+   int tempt = (int)(TemptTank.read()+0.5);        // round float -> int
+   // float tempt = TemptTank.read();
+   if(tempt!=NOT_REAL) {
+      DisplayLCD.displayTempt(tempt);
+   }
+   else {
+      Log.errors("Reading sensor failed !");
+   }
+}
+void SystemControl::showHostFile() {
+
+   Dir dir = SPIFFS.openDir("/");
+   while (dir.next()) {
+      String fileName = dir.fileName();
+      size_t fileSize = dir.fileSize();
+      Log.printfs("FS File: %s, size: %s", fileName.c_str(), formatBytes(fileSize).c_str());
+   }
+   FSInfo fs_info;
+   SPIFFS.info(fs_info);
+   Log.printfs("totalBytes: %d, usedBytes: %d, blockSize %d, pageSize %d, maxOpenFiles %d, maxPathLength %d\n",
+                fs_info.totalBytes, fs_info.usedBytes, fs_info.blockSize, fs_info.pageSize, fs_info.maxOpenFiles , fs_info.maxPathLength);
+
 }
 
 SystemControl System;

@@ -8,23 +8,30 @@
 #include "realtime.h"
 #include "network.h"
 #include "temperature.h"
-#include "eeprom.h"
 #include "display.h"
+#include "lamp.h"
+#include "server.h"
 
-class SystemControl {
+class SystemControl : public SysHost {
 
 public:
    SystemControl();
    ~SystemControl();
    bool startUp();
-   int setUpNetwork();
-   int setUpSystemTime(bool online);
+   int config();
+   int setupNetwork();
+   bool setupSystemTime(bool online);
+   bool setupDisplay();
    int serverConfig();
-   int readInfor();
    int handleAlarm();
+
+   int displayInfor();
+   void displayInfor2LCD();
+   void showHostFile();
 private:
 
 };
+
 
 extern SystemControl System;
 

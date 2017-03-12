@@ -12,7 +12,7 @@ void setup()
    Serial.begin(115200);
 
    char ssid[30] = "Song He";  // network name
-   char password[30] = "nuocchaydamdam"; // password
+   char pass[30] = "nuocchaydamdam"; // password
    char host[15] = "192.168.0.101"; // ip of Root
    int port = 8888;
    Memory.begin();
@@ -25,8 +25,8 @@ void setup()
 void loop()
 {
    char s[64];
-   char ssid[30];
-   char pass[30];
+   char ssid[32];
+   char pass[32];
    char host[15];
    int port;
    unsigned int n = Memory.readString(WIFI_OFFSET,s,64);
@@ -37,5 +37,5 @@ void loop()
    Memory.readInforServer(host, port);
    Log.printfs("ssid: %s - pass %s", ssid, pass);
    Log.printfs("host: %s - port %d", host, port);
-   delay (1000); // Wait one second before repeating :)
+   delay (2000); // Wait one second before repeating :)
 }
