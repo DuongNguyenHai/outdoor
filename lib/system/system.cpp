@@ -12,35 +12,38 @@ bool SystemControl::startUp() {
    Wire.begin(ESP8266_SDA, ESP8266_SCL);     // begin I2C
 
    // Step 2: setup display monitor
-   System.setupDisplay();
+   setupDisplay();
    DisplayLCD.print("System start",0,0);
 
    // Step 3: read config from system.txt file
-   System.showHostFile();     // show all files in system
-   System.config();
+   showHostFile();     // show all files in system
+   config();
 
    // Step 4: setup network. Trying to connect to wifi. If has internet connection will get time from google
    // and if not, it will set system time offline
-   int ret = System.setupNetwork();
+   int ret = setupNetwork();
    bool online = (ret != RT_FAIL) ? ONLINE : OFFLINE;
 
-   System.setupSystemTime(online);
+   setupSystemTime(online);
 
    // System.setupSystemTime(ONLINE);
    // Time.set(DateTime(2017, 03, 10, 22, 24, 40).unixtime()); // setup time
 
    // Step 5: setup lamps.
-   System.setupLamps();
+   setupLamps();
 
    // Step 6: setup server: access the web page at http://esp8266fs.local
-   System.setupHost();
+   setupHost();
+
+   // save data in file
+   log_file = true;
 
    // Show information to display monitor
    char tm[22];
    Time.getDateTimeString(tm);
    Log.logs("System has took %lu ms for start up, %s", millis(), tm);
 
-   System.displayInfor2LCD();
+   displayInfor2LCD();
 }
 
 int SystemControl::config() {
@@ -146,7 +149,7 @@ int SystemControl::handleAlarm() {
          switchLamps();
          DisplayLCD.displayLamptStatus(lamp_state);
       } else if(Time.whichAlarmOn(ALARM_MEASURE)) {
-         DisplayLCD.displayTime();
+         DisplayLCD.displayTime();  // display time in minute
          // check schedule measure.
          if(Time.getTimeHour() == schedule_measure[Time.trackCurrent(TRACK_MEASURE)]) {
             Time.setNextSchedule(ALARM_MEASURE);
@@ -157,10 +160,12 @@ int SystemControl::handleAlarm() {
             else {
                Log.errors("Reading sensor failed !");
             }
-            File fileSys = SPIFFS.open(TEMPT_FILE, "a+");
-            fileSys.print(",");
-            fileSys.print(tempt);
-            fileSys.close();
+            if(log_file) {
+               File fileSys = SPIFFS.open(TEMPT_FILE, "a+");
+               fileSys.print(",");
+               fileSys.print(tempt);
+               fileSys.close();
+            }
          }
       }
    }

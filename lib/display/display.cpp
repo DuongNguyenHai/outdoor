@@ -94,6 +94,6 @@ void SystemDisplay::displayTempt(int tempt) {
    // Network.send("Tempt tank %d (C)", tempt);
 }
 
-// SystemDisplay DisplayLCD(LATCH, CLK, DATA);
+// SystemDisplay7segs DisplaySegs(LATCH, CLK, DATA);
 // SystemDisplayI2C_Arduino_LCD DisplayLCD(I2C_ARDUINO_LCD_ADDR);
 SystemDisplay DisplayLCD(I2C_LCD_ADDR);

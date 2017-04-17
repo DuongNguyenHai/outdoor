@@ -54,7 +54,8 @@ public:
    void displayTempt(int tempt);
 };
 
-// extern SystemDisplay Display;
+// SystemDisplay7segs DisplaySegs;
+// SystemDisplayI2C_Arduino_LCD DisplayLCD;
 extern SystemDisplay DisplayLCD;
 
 #endif

@@ -1,5 +1,6 @@
 // Nguyen Hai Duong
 // Jan 5 2017
+// setup system in offline mode. Its mean system will run with internet and host (http://esp8266fs.local)
 
 #include "system.h"
 
@@ -17,23 +18,23 @@ void setup()
    DisplayLCD.print("System start",0,0);
 
    // Step 3: read config from system.txt file
-   // System.showHostFile();     // show all files in system
-   // System.config();
+   System.showHostFile();     // show all files in system
+   System.config();
 
-   // Step 4: setup network and time. Trying to connect to wifi. If has internet connection will get time from google
+   // Step 4: setup network. Trying to connect to wifi. If has internet connection will get time from google
    // and if not, it will set system time offline
-   // int ret = System.setupNetwork();
-   // bool online = (ret != RT_FAIL) ? ONLINE : OFFLINE;
+   int ret = System.setupNetwork();
+   bool online = (ret != RT_FAIL) ? ONLINE : OFFLINE;
+   System.setupSystemTime(online);
 
-   System.setupSystemTime(OFFLINE);
-   // System.setupSystemTime(ONLINE);
-   // Time.set(DateTime(2017, 04, 17, 07, 36, 40).unixtime()); // setup time
+   // System.setupSystemTime(OFFLINE);
+   // Time.set(DateTime(2017, 03, 10, 22, 24, 40).unixtime()); // setup time
 
    // Step 5: setup lamps.
    System.setupLamps();
 
    // Step 6: setup server: access the web page at http://esp8266fs.local
-   // System.setupHost();
+   System.setupHost();
 
    // Show information to display monitor
    char tm[20];
@@ -43,14 +44,14 @@ void setup()
    System.displayInfor2LCD();
 
    // save data in file
-   // log_file = true;
+   log_file = true;
    // Network.send("__System start__ %s", tm);
 }
 
 void loop()
 {
    // Time.print();
-   // System.handleClient();
+   System.handleClient();
    System.handleAlarm();
    // delay(1000); // Wait one second before repeating :)
 }

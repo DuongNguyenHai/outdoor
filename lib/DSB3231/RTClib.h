@@ -4,6 +4,7 @@
 // Released to the public domain! Enjoy!
 
 // Modify date : Feb 20 2017 -> ver 1.0
+// Modify date : Mar 10 2017 -> ver 1.1
 
 #ifndef _RTCLIB_H_
 #define _RTCLIB_H_
